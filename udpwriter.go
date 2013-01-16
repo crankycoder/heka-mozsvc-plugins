@@ -16,77 +16,80 @@
 package heka_mozsvc_plugins
 
 /*
-
 Usage:
     Include a snippet like this into your hekad/plugin_loader.go file
 
 	pipeline.AvailablePlugins["UdpOutput"] = func() interface{} {
-		return new(mozsvc.UdpOutput)
+		return pipeline.RunnerMaker(new(mozsvc.UDPOutputWriter))
 	}
-
 */
 
 import (
 	"fmt"
 	"github.com/mozilla-services/heka/pipeline"
 	"net"
+	"time"
 )
 
-// This will be our pipeline.PluginGlobal type
-type UdpOutputGlobal struct {
-	conn net.Conn
-}
-
 // Provides pipeline.PluginGlobal interface
-func (self *UdpOutputGlobal) Event(eventType string) {
+func (self *UdpOutputWriter) Event(eventType string) {
 	if eventType == pipeline.STOP {
 		self.conn.Close()
 	}
 }
 
-// This will be our PluginWithGlobal type
-type UdpOutput struct {
-	global *UdpOutputGlobal
+// This will be our Writer type
+type UdpOutputWriter struct {
+	conn net.Conn
 }
 
 // This is our plugin's custom config struct
-type UdpOutputConfig struct {
+type UdpOutputWriterConfig struct {
 	Address string
 }
 
 // Provides pipeline.HasConfigStruct interface, populates default value
-func (self *UdpOutput) ConfigStruct() interface{} {
-	return &UdpOutputConfig{"my.example.com:44444"}
+func (self *UdpOutputWriter) ConfigStruct() interface{} {
+	return &UdpOutputWriterConfig{"my.example.com:44444"}
 }
 
 // Initialize UDP connection, store it on the PluginGlobal
-func (self *UdpOutput) InitOnce(config interface{}) (pipeline.PluginGlobal, error) {
-	conf := config.(*UdpOutputConfig)
+func (self *UdpOutputWriter) Init(config interface{}) error {
+	conf := config.(*UdpOutputWriterConfig)
 	udpAddr, err := net.ResolveUDPAddr("udp", conf.Address)
 	if err != nil {
-		return nil, fmt.Errorf("UdpOutput error resolving UDP address %s: %s",
+		return fmt.Errorf("UdpOutput error resolving UDP address %s: %s",
 			conf.Address, err.Error())
 	}
 	udpConn, err := net.DialUDP("udp", nil, udpAddr)
 	if err != nil {
-		return nil, fmt.Errorf("UdpOutput error dialing UDP address %s: %s",
+		return fmt.Errorf("UdpOutput error dialing UDP address %s: %s",
 			conf.Address, err.Error())
 	}
-	return &UdpOutputGlobal{udpConn}, nil
-}
-
-// Store a reference to the global for use during pipeline processing
-func (self *UdpOutput) Init(global pipeline.PluginGlobal, config interface{}) error {
-	self.global = global.(*UdpOutputGlobal) // UDP connection available as self.global.conn
+	self.conn = udpConn
 	return nil
 }
 
-func (self *UdpOutput) Deliver(pack *pipeline.PipelinePack) {
-	// TODO: You will need to implement your own channel/goroutine
-	// code to write bytes out into self.global.conn here
-	// Directly accessing the self.global.conn UDP connection will
-	// *not* be threadsafe.
-	//
-	// An easier way to do this is to use a Runner plugin, in place of
-	// the PluginWithGlobal.
+func (self *UdpOutputWriter) PrepOutData(pack *pipeline.PipelinePack, outData interface{}, timeout *time.Duration) error {
+	outBytesPtr := outData.(*[]byte)
+	*outBytesPtr = append(*outBytesPtr, []byte(pack.Message.Payload)...)
+	return nil
+}
+
+func (self *UdpOutputWriter) Write(outData interface{}) (err error) {
+	bytePtr := outData.(*[]byte)
+	self.conn.Write(*bytePtr)
+	return nil
+}
+
+// Creates a byte slice for holding output data
+func (self *UdpOutputWriter) MakeOutData() interface{} {
+	b := make([]byte, 0, 1000)
+	return &b
+}
+
+// Resets a byte slice to zero length for reuse
+func (self *UdpOutputWriter) ZeroOutData(outData interface{}) {
+	outBytesPtr := outData.(*[]byte)
+	*outBytesPtr = (*outBytesPtr)[:0]
 }
