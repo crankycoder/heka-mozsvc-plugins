@@ -33,11 +33,10 @@ func getSentryPack() (pack *pipeline.PipelinePack) {
 	recycleChan := make(chan *pipeline.PipelinePack, 1)
 	pack = pipeline.NewPipelinePack(recycleChan)
 	pack.Message.SetType("sentry")
-	fTimeStamp, _ := message.NewField("epoch_timestamp", EPOCH_TS, "utc-seconds")
 	fDsn, _ := message.NewField("dsn", DSN, "uri")
-	pack.Message.AddField(fTimeStamp)
 	pack.Message.AddField(fDsn)
 	pack.Message.SetPayload(PAYLOAD)
+	pack.Message.SetTimestamp(int64(EPOCH_TS * 1e9))
 	pack.Decoded = true
 	return
 }
